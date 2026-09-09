@@ -61,6 +61,12 @@ fn vector_cosine_similarity_inner(args: &[ArrayRef]) -> Result<ArrayRef> {
         (DataType::List(_), DataType::List(_)) => {
             compute_cosine_similarity(as_list_array(&args[0]), as_list_array(&args[1]))
         }
+        (DataType::List(_), DataType::LargeList(_)) => {
+            compute_cosine_similarity(as_list_array(&args[0]), as_large_list_array(&args[1]))
+        }
+        (DataType::LargeList(_), DataType::List(_)) => {
+            compute_cosine_similarity(as_large_list_array(&args[0]), as_list_array(&args[1]))
+        }
         (DataType::LargeList(_), DataType::LargeList(_)) => {
             compute_cosine_similarity(as_large_list_array(&args[0]), as_large_list_array(&args[1]))
         }
@@ -126,9 +132,9 @@ fn cosine_similarity_spark(left: &[f32], right: &[f32]) -> Option<f32> {
     }
 }
 
-fn compute_cosine_similarity<O: OffsetSizeTrait>(
-    left: &GenericListArray<O>,
-    right: &GenericListArray<O>,
+fn compute_cosine_similarity<L: OffsetSizeTrait, R: OffsetSizeTrait>(
+    left: &GenericListArray<L>,
+    right: &GenericListArray<R>,
 ) -> Result<ArrayRef> {
     let values = (0..left.len()).map(|row| {
         if left.is_null(row) || right.is_null(row) {
@@ -249,6 +255,27 @@ mod tests {
             actual.as_primitive::<Float32Type>(),
             &Float32Array::from(vec![Some(1.0)])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn supports_mixed_list_array_widths() -> Result<()> {
+        let list: ArrayRef = Arc::new(ListArray::from_iter_primitive::<Float32Type, _, _>(vec![
+            Some(vec![Some(1.0), Some(2.0)]),
+        ]));
+        let large_list: ArrayRef =
+            Arc::new(LargeListArray::from_iter_primitive::<Float32Type, _, _>(
+                vec![Some(vec![Some(1.0), Some(2.0)])],
+            ));
+        let expected = Float32Array::from(vec![Some(1.0)]);
+
+        let list_large =
+            vector_cosine_similarity_inner(&[Arc::clone(&list), Arc::clone(&large_list)])?;
+        assert_eq!(list_large.as_primitive::<Float32Type>(), &expected);
+
+        let large_list =
+            vector_cosine_similarity_inner(&[Arc::clone(&large_list), Arc::clone(&list)])?;
+        assert_eq!(large_list.as_primitive::<Float32Type>(), &expected);
         Ok(())
     }
 

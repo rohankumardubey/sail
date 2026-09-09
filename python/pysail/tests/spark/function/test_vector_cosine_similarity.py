@@ -1,5 +1,7 @@
 import math
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 
@@ -13,6 +15,22 @@ def test_vector_cosine_similarity(spark):
     assert spark.sql("SELECT vector_cosine_similarity(array(1.0F, 0.0F), array(-1.0F, 0.0F))").first()[
         0
     ] == pytest.approx(-1.0)
+
+
+def test_vector_cosine_similarity_with_parquet_large_list(spark, tmp_path):
+    path = tmp_path / "large_list_vector.parquet"
+    pq.write_table(
+        pa.table({"v": pa.array([[1.0, 2.0]], type=pa.large_list(pa.float32()))}),
+        path,
+    )
+
+    actual = (
+        spark.read.parquet(str(path))
+        .selectExpr("vector_cosine_similarity(v, array(1.0F, 2.0F)) AS similarity")
+        .collect()
+    )
+
+    assert actual[0].similarity == pytest.approx(1.0)
 
 
 def test_vector_cosine_similarity_null_cases(spark):
